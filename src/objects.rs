@@ -2,6 +2,7 @@ use std::{
     fs,
     io::{BufReader, Read, Write},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 #[cfg(unix)]
@@ -30,8 +31,12 @@ impl GitObjectKind {
             GitObjectKind::Tag => "tag",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Result<Self> {
+impl FromStr for GitObjectKind {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
         match value {
             "blob" => Ok(GitObjectKind::Blob),
             "tree" => Ok(GitObjectKind::Tree),
@@ -61,7 +66,7 @@ pub fn validate_sha1_hex(hex_hash: &str) -> Result<()> {
 }
 
 /// Ensures a tree entry filename cannot traverse directories (`..`) or overwrite `.git`.
-pub fn is_safe_entry_name(name: &str) -> bool {
+fn is_safe_entry_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -72,7 +77,7 @@ pub fn is_safe_entry_name(name: &str) -> bool {
 }
 
 /// Computes `.git/objects/<first-2-chars>/<remaining-38-chars>` for a given SHA-1 hex string.
-pub fn object_file_path(git_dir: &Path, hex_hash: &str) -> Result<PathBuf> {
+fn object_file_path(git_dir: &Path, hex_hash: &str) -> Result<PathBuf> {
     validate_sha1_hex(hex_hash)?;
     let (directory_prefix, file_name) = hex_hash.split_at(2);
     Ok(git_dir
@@ -81,7 +86,7 @@ pub fn object_file_path(git_dir: &Path, hex_hash: &str) -> Result<PathBuf> {
         .join(file_name))
 }
 
-/// Initializes a bare `.git` directory structure inside `target_dir`.
+/// Initializes a `.git` directory structure inside `target_dir`.
 pub fn initialize_repository(target_dir: &Path, head_ref: &str) -> Result<PathBuf> {
     ensure!(
         !head_ref.contains("..") && !head_ref.contains('\0'),
@@ -312,4 +317,53 @@ pub fn checkout_tree(git_dir: &Path, tree_sha: &str, destination_dir: &Path) -> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_valid_object_kinds_and_rejects_unknown() {
+        assert_eq!(
+            "blob".parse::<GitObjectKind>().unwrap(),
+            GitObjectKind::Blob
+        );
+        assert_eq!(
+            "tree".parse::<GitObjectKind>().unwrap(),
+            GitObjectKind::Tree
+        );
+        assert_eq!(
+            "commit".parse::<GitObjectKind>().unwrap(),
+            GitObjectKind::Commit
+        );
+        assert_eq!("tag".parse::<GitObjectKind>().unwrap(), GitObjectKind::Tag);
+        assert!("bogus".parse::<GitObjectKind>().is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_tree_entry_names() {
+        assert!(is_safe_entry_name("README.md"));
+        assert!(is_safe_entry_name("src"));
+        assert!(!is_safe_entry_name(""));
+        assert!(!is_safe_entry_name("."));
+        assert!(!is_safe_entry_name(".."));
+        assert!(!is_safe_entry_name(".git"));
+        assert!(!is_safe_entry_name(".GIT"));
+        assert!(!is_safe_entry_name("../evil"));
+        assert!(!is_safe_entry_name("sub\\file"));
+    }
+
+    #[test]
+    fn parses_binary_tree_entries() {
+        let mut raw_tree = Vec::new();
+        raw_tree.extend_from_slice(b"100644 hello.txt\0");
+        raw_tree.extend_from_slice(&[0xabu8; 20]);
+
+        let entries = parse_tree_entries(&raw_tree).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "100644");
+        assert_eq!(entries[0].name, "hello.txt");
+        assert_eq!(entries[0].sha, [0xabu8; 20]);
+    }
 }

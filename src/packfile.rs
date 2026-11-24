@@ -21,13 +21,13 @@ use crate::objects::{
 const MAX_UNPACKED_OBJECT_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
-pub struct RemoteHeadInfo {
-    pub head_sha: String,
-    pub default_branch_ref: String,
+struct RemoteHeadInfo {
+    head_sha: String,
+    default_branch_ref: String,
 }
 
 /// Encodes a payload line using Git's 4-hex-digit `pkt-line` framing (`0000` is a flush packet).
-pub fn encode_pkt_line(payload: &str) -> Result<String> {
+fn encode_pkt_line(payload: &str) -> Result<String> {
     if payload.is_empty() {
         return Ok(String::from("0000"));
     }
@@ -42,7 +42,7 @@ pub fn encode_pkt_line(payload: &str) -> Result<String> {
 }
 
 /// Queries `<repo_url>/info/refs?service=git-upload-pack` to discover `HEAD` and its symref branch.
-pub fn discover_remote_head(client: &http::Client, repo_url: &str) -> Result<RemoteHeadInfo> {
+fn discover_remote_head(client: &http::Client, repo_url: &str) -> Result<RemoteHeadInfo> {
     let info_refs_url = format!(
         "{}/info/refs?service=git-upload-pack",
         repo_url.trim_end_matches('/')
@@ -79,20 +79,20 @@ pub fn discover_remote_head(client: &http::Client, repo_url: &str) -> Result<Rem
         let payload = &remaining[4..packet_length];
         let line = std::str::from_utf8(payload)?.trim_end_matches('\n');
 
-        if let Some((ref_part, capabilities_part)) = line.split_once('\0') {
-            if let Some(sha) = ref_part.strip_suffix(" HEAD") {
-                validate_sha1_hex(sha)?;
-                let default_branch_ref = capabilities_part
-                    .split_whitespace()
-                    .find_map(|cap| cap.strip_prefix("symref=HEAD:"))
-                    .unwrap_or("refs/heads/main")
-                    .to_string();
+        if let Some((ref_part, capabilities_part)) = line.split_once('\0')
+            && let Some(sha) = ref_part.strip_suffix(" HEAD")
+        {
+            validate_sha1_hex(sha)?;
+            let default_branch_ref = capabilities_part
+                .split_whitespace()
+                .find_map(|cap| cap.strip_prefix("symref=HEAD:"))
+                .unwrap_or("refs/heads/main")
+                .to_string();
 
-                return Ok(RemoteHeadInfo {
-                    head_sha: sha.to_string(),
-                    default_branch_ref,
-                });
-            }
+            return Ok(RemoteHeadInfo {
+                head_sha: sha.to_string(),
+                default_branch_ref,
+            });
         }
 
         remaining = &remaining[packet_length..];
@@ -102,7 +102,7 @@ pub fn discover_remote_head(client: &http::Client, repo_url: &str) -> Result<Rem
 }
 
 /// Requests a packfile containing `want_sha` from `<repo_url>/git-upload-pack`.
-pub fn fetch_packfile(client: &http::Client, repo_url: &str, want_sha: &str) -> Result<Vec<u8>> {
+fn fetch_packfile(client: &http::Client, repo_url: &str, want_sha: &str) -> Result<Vec<u8>> {
     let upload_pack_url = format!("{}/git-upload-pack", repo_url.trim_end_matches('/'));
 
     let mut request_body = String::new();
@@ -151,7 +151,7 @@ fn read_varint_le(buffer: &[u8], offset: &mut usize) -> Result<usize> {
 }
 
 /// Reconstructs a target object by applying Git binary delta instructions onto `base_bytes`.
-pub fn apply_delta_patch(base_bytes: &[u8], delta_bytes: &[u8]) -> Result<Vec<u8>> {
+fn apply_delta_patch(base_bytes: &[u8], delta_bytes: &[u8]) -> Result<Vec<u8>> {
     let mut cursor = 0;
     let expected_base_size = read_varint_le(delta_bytes, &mut cursor)?;
     let target_size = read_varint_le(delta_bytes, &mut cursor)?;
@@ -423,4 +423,49 @@ pub fn clone_repository(repo_url: &str, destination_dir: &Path) -> Result<()> {
     checkout_tree(&git_dir, root_tree_sha, destination_dir)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_pkt_lines_and_flush_packets() {
+        assert_eq!(encode_pkt_line("").unwrap(), "0000");
+        assert_eq!(
+            encode_pkt_line("want 3b0466d22854e57bf9ad3ccf82008a2d3f199550\n").unwrap(),
+            "0032want 3b0466d22854e57bf9ad3ccf82008a2d3f199550\n"
+        );
+    }
+
+    #[test]
+    fn applies_delta_copy_and_insert_instructions() {
+        let base = b"Hello, world!";
+        // Base len = 13, Target len = 12
+        // Copy 7 bytes from offset 0 ("Hello, ") -> 0x91, 0, 7
+        // Insert 5 bytes ("Rust!") -> 0x05, b"Rust!"
+        let mut delta = vec![13, 12, 0x91, 0, 7, 5];
+        delta.extend_from_slice(b"Rust!");
+
+        let patched = apply_delta_patch(base, &delta).unwrap();
+        assert_eq!(patched, b"Hello, Rust!");
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_delta_copy() {
+        let base = b"short";
+        let delta = vec![5, 10, 0x91, 0, 10];
+        assert!(apply_delta_patch(base, &delta).is_err());
+    }
+
+    #[test]
+    fn decodes_ofs_delta_plus_one_distance() {
+        // Single-byte distance: 42
+        let mut single = Cursor::new(&[42u8][..]);
+        assert_eq!(read_ofs_delta_distance(&mut single).unwrap(), 42);
+
+        // Multi-byte distance: 0x80 (0 with continuation), 0x05 -> ((0 + 1) * 128) + 5 = 133
+        let mut multi = Cursor::new(&[0x80u8, 0x05u8][..]);
+        assert_eq!(read_ofs_delta_distance(&mut multi).unwrap(), 133);
+    }
 }

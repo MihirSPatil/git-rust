@@ -2,7 +2,7 @@
 name = "git-rust"
 version = "0.1.0"
 authors = ["Mihir S. Patil"]
-description = "From-scratch Git client and Smart HTTP packfile engine in Rust — built for the CodeCrafters Build Your Own Git challenge."
+description = "From-scratch Git client in Rust implementing SHA-1 object storage, Smart HTTP packfiles, and binary delta patching (credit to CodeCrafters)."
 edition = "2024"
 rust-version = "1.96"
 

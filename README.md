@@ -6,9 +6,10 @@ A clean, modular, zero-`unwrap` implementation of Git's core plumbing commands a
 
 ## Engineering Highlights & Systems Design
 
+- **Wide & Shallow Module Architecture:** Organized into flat, self-contained domain modules (`objects.rs` and `packfile.rs`) with narrow public APIs, private low-level parsers, and co-located unit tests—optimized for both human readability and AI coding agents (see [`AGENTS.md`](AGENTS.md)).
 - **Zero-Panic Error Propagation:** Replaced all `.unwrap()` calls with structured `anyhow::Result` error chains across network, file I/O, UTF-8 decoding, and binary parsing boundaries.
 - **Memory & Algorithmic Efficiency:** Resolves `OFS_DELTA` and `REF_DELTA` packfile dependencies in **$O(1)$** using dual `HashMap` indexes backed by `Rc<(GitObjectKind, Vec<u8>)>`, avoiding duplicate buffer allocations in memory and pre-allocating target buffers from delta varint headers.
-- **Security Hardening:** Guards against path-traversal and `.git/hooks` overwrite attacks during working-tree checkout (`is_safe_entry_name`), enforces a 512 MiB decompression-bomb cap on packfile entries, and uses checked arithmetic (`checked_add`, `checked_shl`, `checked_sub`) against malformed varints.
+- **Security Hardening:** Guards against path-traversal and `.git/hooks` overwrite attacks during working-tree checkout, enforces a 512 MiB decompression-bomb cap on packfile entries, and uses checked arithmetic (`checked_add`, `checked_shl`, `checked_sub`) against malformed varints.
 - **Cross-Platform Portability:** Isolates POSIX executable mode handling (`100755`) behind `#[cfg(unix)]` attributes and uses OS-agnostic `PathBuf` joins so the crate compiles cleanly on Linux, macOS, and Windows.
 - **Spec-Verified Against Official Git:** Validated loose object storage, tree sorting, packfile unpacking, and working-tree checkouts directly with `git fsck --full`, `git ls-tree`, and `git status`.
 
@@ -30,17 +31,20 @@ A clean, modular, zero-`unwrap` implementation of Git's core plumbing commands a
 
 ## Project Architecture
 
-The codebase is organized into small, single-responsibility modules so it is easy to read, test, and reuse as either a CLI binary or a Rust library:
+The codebase follows a **wide and shallow** structure—keeping related domain logic, private binary helpers, and unit tests together in two core modules rather than scattering code across nested folders:
 
 ```text
-├── Cargo.toml             # Builds the `git-rust` library crate and CLI binary
+├── Cargo.toml                  # Builds the `git-rust` library crate and CLI binary
+├── AGENTS.md                   # Architecture & invariant guide for AI coding agents
 ├── src/
-│   ├── lib.rs             # Public library exports (`objects` and `packfile`)
-│   ├── main.rs            # CLI argument parsing and subcommand dispatch
-│   ├── objects.rs         # Loose object I/O, SHA-1 hashing, tree serialization, safe checkout
-│   └── packfile.rs        # Smart HTTP discovery, pkt-line framing, packfile & delta unpacking
-└── tests/
-    └── integration_tests.rs # Automated unit & round-trip tests (`cargo test`)
+│   ├── lib.rs                  # Public library exports (`objects` and `packfile`)
+│   ├── main.rs                 # Thin CLI argument parser and subcommand dispatch
+│   ├── objects.rs              # Loose object I/O, SHA-1 hashing, tree serialization, safe checkout + unit tests
+│   └── packfile.rs             # Smart HTTP discovery, pkt-line framing, packfile & delta unpacking + unit tests
+├── tests/
+│   └── integration_tests.rs    # End-to-end round-trip, security & packfile tests (`cargo test`)
+└── docs/
+    └── INTERNALS.md            # Bit-level protocol & binary encoding reference
 ```
 
 ---
@@ -48,7 +52,7 @@ The codebase is organized into small, single-responsibility modules so it is eas
 ## Installation & Usage
 
 ### Prerequisites
-- **Rust toolchain** (`cargo` / `rustc` 1.85+ or 1.96 as configured in `Cargo.toml`)
+- **Rust toolchain** (`cargo` / `rustc` 1.85+ or 1.96+ as configured in `Cargo.toml`)
 - **Official `git` CLI** (optional, for cross-verifying generated repositories)
 
 ### 1. Run directly with Cargo
@@ -161,11 +165,13 @@ Read the `HEAD` commit object, extract its `tree <sha>` line, and recursively wa
 
 ## Verification & Testing
 
-### 1. Run Automated Unit & Round-Trip Tests
+### 1. Run Automated Unit & Integration Tests
 ```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
 cargo test
 ```
-Verifies SHA-1 hashing (`3b18e512dba79e4c8300dd08aeb37f8e728b8dad` for `"hello world\n"`), `pkt-line` encoding, delta binary patching, tree parsing, and path-traversal guards.
+Runs both co-located unit tests inside `src/objects.rs` and `src/packfile.rs` and end-to-end tests in `tests/integration_tests.rs`.
 
 ### 2. Cross-Verify Object Creation Against Official `git`
 ```bash
@@ -205,4 +211,4 @@ For a detailed walkthrough of Git's binary object formats, `pkt-line` framing, p
 ## Acknowledgments & Attribution
 
 - Inspired by the [**Build Your Own Git**](https://codecrafters.io/challenges/git) systems-programming challenge on [CodeCrafters](https://codecrafters.io), which provided the initial problem milestones and protocol specifications.
-- Core implementation, modular library/CLI architecture (`objects.rs`, `packfile.rs`), $O(1)$ `HashMap` + `Rc` delta resolution, security hardening (path-traversal guards, decompression-bomb caps, checked integer arithmetic), unit/integration test suite, and technical documentation were written from scratch by **Mihir S. Patil**.
+- Core implementation, wide-and-shallow library/CLI architecture (`objects.rs`, `packfile.rs`), $O(1)$ `HashMap` + `Rc` delta resolution, security hardening (path-traversal guards, decompression-bomb caps, checked integer arithmetic), unit/integration test suite, and technical documentation were written from scratch by **Mihir S. Patil**.
