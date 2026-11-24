@@ -127,4 +127,3 @@ git -C /tmp/test-clone status
 ## Acknowledgments & Attribution
 
 - Built upon the [**Build Your Own Git**](https://codecrafters.io/challenges/git) challenge on [CodeCrafters](https://codecrafters.io), which provided the initial problem milestones and protocol specifications.
-- Additional features built on top of the core challenge include the wide-and-shallow library/CLI architecture (`objects.rs`, `packfile.rs`), $O(1)$ `HashMap` + `Rc` delta resolution, security hardening (path-traversal guards, decompression-bomb caps, checked integer arithmetic), unit/integration test suite, cross-platform CI, and protocol documentation.
