@@ -51,7 +51,7 @@ docs/
 - **Blocking HTTP transport:** Uses `reqwest::blocking` instead of an async runtime (`tokio`) to avoid async state-machine overhead on a single-stream CLI workload.
 - **Scope boundaries:** Supports public HTTP/HTTPS `clone` and core plumbing (`init`, `hash-object`, `cat-file`, `write-tree`, `ls-tree`, `commit-tree`); SSH transport, shallow clones (`depth=1`), and index staging (`git add`) are intentionally out of scope.
 
-## How to Build Something Like This Yourself
+## How to Build it Yourself
 
 If you want to build your own Git client in Rust to explore Git internals, break it into these 7 incremental milestones:
 
